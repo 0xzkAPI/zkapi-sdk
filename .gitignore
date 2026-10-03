@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.artifacts/
+.cache/
+*.tgz
+.env
+.env.*
+*.pem
+*.sk
+*-keypair.json
+.DS_Store
+test-results/
