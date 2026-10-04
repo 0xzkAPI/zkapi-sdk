@@ -1,6 +1,6 @@
 {
   "name": "@zkapi/robinhood-sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "TypeScript SDK for private ETH payments on Robinhood Chain Mainnet",
   "private": true,
   "type": "module",

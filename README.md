@@ -46,7 +46,7 @@ npm pack
 From your application:
 
 ```sh
-npm install /absolute/path/to/zkapi-sdk/zkapi-robinhood-sdk-0.3.0.tgz
+npm install /absolute/path/to/zkapi-sdk/zkapi-robinhood-sdk-0.3.1.tgz
 ```
 
 Use ESM or a browser bundler. Web Crypto, `fetch`, `BigInt`, HTTPS/localhost, and a deterministic EOA wallet with an EIP-1193 provider are required. The SDK does not accept private keys.

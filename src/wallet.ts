@@ -26,9 +26,21 @@ export function discoverWallets(onWallet: (detail: Eip6963ProviderDetail) => voi
   return () => target.removeEventListener('eip6963:announceProvider', listener);
 }
 
+function isMainnetChain(chainId: unknown): boolean {
+  return typeof chainId === 'string' && /^0x[0-9a-f]+$/i.test(chainId) && BigInt(chainId) === BigInt(CHAIN_ID);
+}
+
+function selectedAccount(accounts: unknown): string | null {
+  if (!Array.isArray(accounts) || !accounts.length) return null;
+  try {
+    if (!accounts.every(account => typeof account === 'string' && getAddress(account))) return null;
+    return getAddress(accounts[0]);
+  } catch { return null; }
+}
+
 export async function assertChain(provider: Eip1193Provider): Promise<void> {
   const chainId = await provider.request({ method: 'eth_chainId' });
-  requireCondition(typeof chainId === 'string' && /^0x[0-9a-f]+$/i.test(chainId) && BigInt(chainId) === BigInt(CHAIN_ID), 'WRONG_CHAIN', 'Switch your wallet to Robinhood Chain Mainnet (4663).');
+  requireCondition(isMainnetChain(chainId), 'WRONG_CHAIN', 'Switch your wallet to Robinhood Chain Mainnet (4663).');
 }
 
 export async function switchToMainnet(provider: Eip1193Provider, rpcUrl: string): Promise<void> {
@@ -48,10 +60,22 @@ export async function switchToMainnet(provider: Eip1193Provider, rpcUrl: string)
 
 export class WalletSession {
   private valid = true;
-  private readonly invalidate = () => { this.valid = false; this.onInvalidate?.(); };
+  private readonly invalidate = () => {
+    if (!this.valid) return;
+    this.valid = false;
+    this.onInvalidate?.();
+  };
+  // Some wallets repeat unchanged account/network notifications while signing.
+  // A genuine transition still revokes this session permanently, even A → B → A.
+  private readonly accountsChanged = (accounts: unknown) => {
+    if (selectedAccount(accounts) !== this.account) this.invalidate();
+  };
+  private readonly chainChanged = (chainId: unknown) => {
+    if (!isMainnetChain(chainId)) this.invalidate();
+  };
   private constructor(public readonly provider: Eip1193Provider, public readonly account: string, private readonly onInvalidate?: () => void) {
-    provider.on?.('chainChanged', this.invalidate);
-    provider.on?.('accountsChanged', this.invalidate);
+    provider.on?.('chainChanged', this.chainChanged);
+    provider.on?.('accountsChanged', this.accountsChanged);
     provider.on?.('disconnect', this.invalidate);
   }
 
@@ -69,11 +93,16 @@ export class WalletSession {
 
   async assertActive(): Promise<void> {
     requireCondition(this.valid, 'SESSION_CHANGED', 'Wallet account or network changed. Reconnect to restore the correct private balance.');
-    await assertChain(this.provider);
+    const chainId = await this.provider.request({ method: 'eth_chainId' });
     requireCondition(this.valid, 'SESSION_CHANGED', 'Wallet account or network changed during the chain check.');
+    if (!isMainnetChain(chainId)) {
+      this.invalidate();
+      requireCondition(false, 'WRONG_CHAIN', 'Switch your wallet to Robinhood Chain Mainnet (4663).');
+    }
     const accounts = await this.provider.request({ method: 'eth_accounts' });
     requireCondition(this.valid, 'SESSION_CHANGED', 'Wallet account or network changed during the account check.');
-    requireCondition(Array.isArray(accounts) && typeof accounts[0] === 'string' && getAddress(accounts[0]) === this.account, 'SESSION_CHANGED', 'The selected wallet account changed.');
+    if (selectedAccount(accounts) !== this.account) this.invalidate();
+    requireCondition(this.valid, 'SESSION_CHANGED', 'The selected wallet account changed.');
   }
 
   async signMessage(message: string): Promise<string> {
@@ -96,8 +125,8 @@ export class WalletSession {
 
   disconnect(): void {
     this.valid = false;
-    this.provider.removeListener?.('chainChanged', this.invalidate);
-    this.provider.removeListener?.('accountsChanged', this.invalidate);
+    this.provider.removeListener?.('chainChanged', this.chainChanged);
+    this.provider.removeListener?.('accountsChanged', this.accountsChanged);
     this.provider.removeListener?.('disconnect', this.invalidate);
   }
 }

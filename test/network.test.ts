@@ -328,3 +328,24 @@ test('an old deferred sync failure cannot erase a reconnected session’s newly 
   assert.equal(f.client.getSnapshot().account, wallet.address);
   f.client.disconnect();
 });
+
+
+test('missed account and chain events revoke the client and require fresh recovery', async () => {
+  for (const method of ['eth_accounts', 'eth_chainId']) {
+    const f = await fixture();
+    await f.client.connect(f.provider); await f.client.unlock();
+    await f.append(7n, [11n, 12n], 21); await f.client.sync();
+    const request = f.provider.request;
+    f.provider.request = async args => args.method === method ? (method === 'eth_accounts' ? [RECIPIENT] : '0x1') : request(args);
+    await assert.rejects(f.client.sync(), (error: unknown) => ['SESSION_CHANGED', 'WRONG_CHAIN'].includes((error as { code: string }).code));
+    const snapshot = f.client.getSnapshot();
+    assert.equal(snapshot.account, null); assert.equal(snapshot.unlocked, false);
+    assert.equal(snapshot.privateBalanceWei, 0n); assert.equal(snapshot.noteCount, 0); assert.equal(snapshot.walletBalanceWei, 0n);
+    f.provider.request = request;
+    await assert.rejects(f.client.unlock(), (error: unknown) => (error as { code: string }).code === 'WALLET_DISCONNECTED');
+    await f.client.connect(f.provider);
+    assert.equal((await f.client.unlock()).privateBalanceWei, 7n);
+    assert.match(f.eventRequests().at(-1)!, /from=0&nullifierFrom=0/);
+    f.client.disconnect();
+  }
+});

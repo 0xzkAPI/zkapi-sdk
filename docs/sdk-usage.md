@@ -12,7 +12,7 @@ npm run check
 npm pack
 ```
 
-Install the resulting `zkapi-robinhood-sdk-0.3.0.tgz` into your application using its local file path. No npm release is assumed. Node applications use ESM; browser applications use an ES2022-capable bundler such as Vite or esbuild. Type declarations are included. CommonJS `require()` is not an advertised entry point.
+Install the resulting `zkapi-robinhood-sdk-0.3.1.tgz` into your application using its local file path. No npm release is assumed. Node applications use ESM; browser applications use an ES2022-capable bundler such as Vite or esbuild. Type declarations are included. CommonJS `require()` is not an advertised entry point.
 
 ## Configure Mainnet and your RPC
 
