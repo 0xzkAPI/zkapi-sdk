@@ -1,11 +1,11 @@
-export const CHAIN_ID = 46630 as const;
-export const CHAIN_ID_HEX = '0xb626' as const;
-export const PROTOCOL = 'zkpay-robinhood-testnet-v1' as const;
+export const CHAIN_ID = 4663 as const;
+export const CHAIN_ID_HEX = '0x1237' as const;
+export const PROTOCOL = 'zkpay-robinhood-mainnet-v1' as const;
 export const BASE_FEE_WEI = 550000000000000n;
 export const DEFAULT_FEE_BPS = 20;
 export const MAX_FEE_BPS = 100;
 export const FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-export const EXPLORER_URL = 'https://explorer.testnet.chain.robinhood.com';
+export const EXPLORER_URL = 'https://robinhoodchain.blockscout.com';
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 export class ZkPayError extends Error {

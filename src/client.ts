@@ -1,18 +1,19 @@
 import { getAddress, Interface } from 'ethers';
 import { HttpError, isDefiniteRelayRejection, ZkPayApi } from './api.js';
-import { CHAIN_ID, requireCondition, TransactionFailedError, ZkPayError, ZERO_ADDRESS } from './constants.js';
+import { CHAIN_ID, parseField, requireCondition, TransactionFailedError, ZkPayError, ZERO_ADDRESS } from './constants.js';
 import { quoteSend, validateFeeBps } from './fees.js';
 import type { SendQuote } from './fees.js';
 import { unlockKeys } from './keys.js';
 import type { PrivateKeys } from './keys.js';
 import { recoverNotes } from './notes.js';
 import type { OwnedNote } from './notes.js';
+import { confirmationDelay, confirmationPaused } from './polling.js';
 import { loadArtifacts, prepareTransaction, proveTransaction, selectNotes } from './proof.js';
 import type { LoadedArtifacts, PreparedTransaction, ProvedTransaction } from './proof.js';
 import { MAX_AMOUNT, POOL_ABI, poolDomain, relayRequestId, validateAmount } from './protocol.js';
 import { rebuildMerkleTree } from './tree.js';
 import type { MerkleTree } from './tree.js';
-import type { BalanceSnapshot, CommitmentRecord, ContractProof, ExternalData, PoolState, Progress, RelayResponse, SendRequest, TransactionResult, ZkPayClientApi, ZkPayConfig } from './types.js';
+import type { BalanceSnapshot, CommitmentRecord, ContractProof, EventCheckpoint, ExternalData, PoolState, Progress, RelayResponse, SendRequest, TransactionResult, ZkPayClientApi, ZkPayConfig } from './types.js';
 import { WalletSession } from './wallet.js';
 import type { Eip1193Provider } from './wallet.js';
 
@@ -31,16 +32,19 @@ export class ZkPayClient implements ZkPayClientApi {
   private walletBalance = 0n;
   private notes: OwnedNote[] = [];
   private tree: MerkleTree | null = null;
+  private minimumCheckpointBlock = 0;
+  private verifiedCheckpoint: Readonly<EventCheckpoint> | null = null;
+  private spentNullifiers = new Set<string>();
+  private syncing: { generation: number; promise: Promise<BalanceSnapshot> } | null = null;
   private generation = 0;
   private acting = false;
   private artifacts: Promise<LoadedArtifacts> | null = null;
   private pending: PendingTransaction | null = null;
-  private minimumCheckpointBlock = 0;
 
   constructor(config: ZkPayConfig) {
-    requireCondition(config.chainId === CHAIN_ID, 'WRONG_CHAIN', 'This SDK only supports Robinhood Chain Testnet (46630).');
+    requireCondition(config.chainId === CHAIN_ID, 'WRONG_CHAIN', 'This SDK only supports Robinhood Chain Mainnet (4663).');
     const poolAddress = getAddress(config.poolAddress), verifierAddress = getAddress(config.verifierAddress), relayerAddress = getAddress(config.relayerAddress);
-    requireCondition(![poolAddress, verifierAddress, relayerAddress].includes(ZERO_ADDRESS) && Number.isSafeInteger(config.deploymentBlock) && config.deploymentBlock >= 0 && typeof config.artifactId === 'string' && config.artifactId.length > 0, 'INVALID_DEPLOYMENT', 'A complete pinned testnet deployment is required.');
+    requireCondition(![poolAddress, verifierAddress, relayerAddress].includes(ZERO_ADDRESS) && Number.isSafeInteger(config.deploymentBlock) && config.deploymentBlock >= 0 && typeof config.artifactId === 'string' && config.artifactId.length > 0, 'INVALID_DEPLOYMENT', 'A complete pinned mainnet deployment is required.');
     for (const artifact of [config.artifacts?.wasm, config.artifacts?.zkey, config.artifacts?.verificationKey]) {
       requireCondition(!!artifact && typeof artifact.url === 'string' && artifact.url.length > 0 && /^[0-9a-f]{64}$/i.test(artifact.sha256), 'INVALID_DEPLOYMENT', 'All independent proof artifact URLs and SHA-256 identities must be pinned.');
     }
@@ -54,7 +58,8 @@ export class ZkPayClient implements ZkPayClientApi {
   }
 
   private progress(progress: Progress): void { this.config.onProgress?.(progress); }
-  private clearPrivateState(): void { this.keys = null; this.notes = []; this.tree = null; }
+  private clearPrivateState(): void { this.keys = null; this.clearVerifiedSnapshot(); }
+  private clearVerifiedSnapshot(): void { this.notes = []; this.tree = null; this.verifiedCheckpoint = null; this.spentNullifiers.clear(); }
   private invalidateSession = (): void => {
     this.generation++; this.session?.disconnect(); this.session = null;
     this.clearPrivateState(); this.walletBalance = 0n;
@@ -105,8 +110,8 @@ export class ZkPayClient implements ZkPayClientApi {
     await this.getState();
     this.disconnect();
     const generation = this.generation;
-    const session = await WalletSession.connect(provider, { ...options, rpcUrl: this.config.rpcUrl, onInvalidate: () => { if (this.generation === generation) this.invalidateSession(); } });
-    try { this.assertGeneration(generation); await this.assertOnChainDeployment(session); this.session = session; await this.refreshWalletBalance(); }
+    const session = await WalletSession.connect(provider, { ...options, rpcUrl: this.config.rpcUrl, onInvalidate: () => { if (generation === this.generation) this.invalidateSession(); } });
+    try { this.assertGeneration(generation); await this.assertOnChainDeployment(session); this.assertGeneration(generation); this.session = session; await this.refreshWalletBalance(); }
     catch (error) { session.disconnect(); if (this.session === session) this.session = null; throw error; }
     return this.getSnapshot();
   }
@@ -114,54 +119,88 @@ export class ZkPayClient implements ZkPayClientApi {
     const session = this.requireSession(), generation = this.generation;
     const state = await this.getState();
     this.assertGeneration(generation);
-    requireCondition(!state.indexing && state.checkpoint.blockNumber >= this.minimumCheckpointBlock, 'INDEXER_CATCHING_UP', 'The indexer is catching up. Refresh shortly before unlocking.');
+    requireCondition(!state.indexing && state.checkpoint.blockNumber >= this.minimumCheckpointBlock, 'INDEXER_CATCHING_UP', 'Public history is catching up. Refresh before restoring or using your private balance.');
     await this.assertOnChainDeployment(session);
     this.progress({ phase: 'signing' });
     const keys = await unlockKeys(session, { chainId: CHAIN_ID, poolAddress: this.config.poolAddress, origin: this.config.origin! });
     this.assertGeneration(generation);
+    this.clearVerifiedSnapshot();
     this.keys = keys;
     return this.sync();
   }
   async sync(): Promise<BalanceSnapshot> {
+    // Coalesce concurrent reads only while they are actually in flight. There is
+    // no state TTL; the next completed-operation refresh always reads new state.
+    if (this.syncing?.generation === this.generation) return this.syncing.promise;
+    const current = { generation: this.generation, promise: this.synchronize() };
+    this.syncing = current;
+    try { return await current.promise; }
+    finally { if (this.syncing === current) this.syncing = null; }
+  }
+  private async synchronize(): Promise<BalanceSnapshot> {
     const session = this.requireSession(), generation = this.generation;
     this.progress({ phase: 'syncing' });
-    await session.assertActive();
+    // refreshWalletBalance already checks the active chain/account immediately.
     await this.refreshWalletBalance();
-    // Full public snapshots deliberately make no request revealing an owned note.
+    // Public sequential cursors never reveal an owned commitment or private path.
     for (let attempt = 0; attempt < 3; attempt++) {
+      let incremental = false;
       try {
         const state = await this.getState();
         this.assertGeneration(generation);
-        requireCondition(!state.indexing && state.checkpoint.blockNumber >= this.minimumCheckpointBlock, 'INDEXER_CATCHING_UP', 'The indexer is catching up. Refresh shortly.');
-        if (!this.keys) return this.getSnapshot();
-        if (state.closed || !state.initialized) { this.notes = []; this.tree = null; return this.getSnapshot(); }
+        const keys = this.keys;
+        requireCondition(!state.indexing && state.checkpoint.blockNumber >= this.minimumCheckpointBlock, 'INDEXER_CATCHING_UP', 'Public history is catching up. The private balance is not current; refresh before making a payment.');
+        if (!keys) return this.getSnapshot();
+        if (state.closed || !state.initialized) { this.clearVerifiedSnapshot(); return this.getSnapshot(); }
+        if (state.poolEpoch !== state.checkpoint.poolEpoch) this.clearVerifiedSnapshot();
         requireCondition(state.poolEpoch === state.checkpoint.poolEpoch, 'INDEXER_CATCHING_UP', 'The indexer is catching up with the current pool epoch. Try refresh shortly.');
-        const records: CommitmentRecord[] = [], spent = new Set<string>();
-        let from = 0, nullifierFrom = 0, hasMore = true;
+        const prior = this.verifiedCheckpoint;
+        incremental = !!(this.tree && prior && prior.epoch === state.checkpoint.epoch && prior.poolEpoch === state.checkpoint.poolEpoch &&
+          prior.blockNumber <= state.checkpoint.blockNumber && prior.nextIndex <= state.checkpoint.nextIndex && prior.nextNullifierIndex <= state.checkpoint.nextNullifierIndex &&
+          (prior.blockNumber !== state.checkpoint.blockNumber || prior.blockHash === state.checkpoint.blockHash));
+        if (!incremental) this.clearVerifiedSnapshot();
+        const records: CommitmentRecord[] = [], spent = incremental ? new Set(this.spentNullifiers) : new Set<string>();
+        let from = incremental ? prior!.nextIndex : 0, nullifierFrom = incremental ? prior!.nextNullifierIndex : 0;
+        let hasMore = from < state.checkpoint.nextIndex || nullifierFrom < state.checkpoint.nextNullifierIndex;
         while (hasMore) {
           const page = await this.api.events(state.checkpoint, from, nullifierFrom);
           records.push(...page.commitments);
-          page.nullifiers.forEach((record) => spent.add(record.nullifier));
+          page.nullifiers.forEach((record) => {
+            const value = parseField(record.nullifier, 'nullifier').toString();
+            requireCondition(!spent.has(value), 'INVALID_EVENTS', 'Duplicate spent-nullifier event.');
+            spent.add(value);
+          });
           from = page.nextFrom; nullifierFrom = page.nextNullifierFrom; hasMore = page.hasMore;
           this.assertGeneration(generation);
         }
-        requireCondition(from === state.checkpoint.nextIndex && nullifierFrom === state.checkpoint.nextNullifierIndex, 'INVALID_EVENTS', 'Incomplete public event snapshot.');
-        const tree = rebuildMerkleTree(records, state.checkpoint.root);
-        const notes = state.closed ? [] : await recoverNotes(this.keys, records, spent);
-        this.assertGeneration(generation); await session.assertActive();
-        this.assertGeneration(generation);
+        requireCondition(from === state.checkpoint.nextIndex && nullifierFrom === state.checkpoint.nextNullifierIndex && spent.size === state.checkpoint.nextNullifierIndex, 'INVALID_EVENTS', 'Incomplete public event snapshot.');
+        const tree = incremental ? (records.length ? this.tree!.clone() : this.tree!) : rebuildMerkleTree([]);
+        records.forEach(record => tree.append(parseField(record.commitment, 'commitment'), record.index));
+        requireCondition(tree.size === state.checkpoint.nextIndex && tree.root === parseField(state.checkpoint.root, 'root'), 'ROOT_MISMATCH', 'Public event history does not match the pool Merkle root.');
+        // Empty blocks may change checkpoint identity without any new events.
+        // Verify the fresh server checkpoint against the wallet's canonical chain.
+        const block = await this.readCanonicalBlock(`0x${state.checkpoint.blockNumber.toString(16)}`);
+        requireCondition(block?.hash.toLowerCase() === state.checkpoint.blockHash.toLowerCase(), 'CHECKPOINT_REORG', 'The indexed checkpoint is not canonical. Refresh after indexing catches up.');
+        const notes = [...(incremental ? this.notes.filter(note => !spent.has(note.nullifier.toString())) : []), ...await recoverNotes(keys, records, spent)];
+        this.assertGeneration(generation); await session.assertActive(); this.assertGeneration(generation);
+        requireCondition(state.checkpoint.blockNumber >= this.minimumCheckpointBlock, 'INDEXER_CATCHING_UP', 'Public history is catching up with your confirmed transaction.');
         this.tree = tree; this.notes = notes;
+        this.verifiedCheckpoint = Object.freeze({ ...state.checkpoint });
+        this.spentNullifiers = spent;
         return this.getSnapshot();
       } catch (error) {
+        // An old failing read must not clear a newly connected session's cache.
         this.assertGeneration(generation);
-        if (error instanceof ZkPayError && ['REORG_RESET', 'SNAPSHOT_EXPIRED'].includes(error.code) && attempt < 2) { this.notes = []; this.tree = null; continue; }
+        if (error instanceof ZkPayError && ['REORG_RESET', 'SNAPSHOT_EXPIRED', 'CHECKPOINT_REORG'].includes(error.code)) { this.clearVerifiedSnapshot(); if (attempt < 2) continue; }
+        // A malformed suffix never commits its staged tree/notes/nullifiers.
+        // Retain the last verified snapshot; this failed sync still blocks proving.
         throw error;
       }
     }
     throw new ZkPayError('SYNC_FAILED', 'Could not synchronize a stable public checkpoint.');
   }
   quoteSend(grossWei: bigint): SendQuote {
-    requireCondition(this.state, 'STATE_REQUIRED', 'Load the current testnet fee before requesting a quote.');
+    requireCondition(this.state, 'STATE_REQUIRED', 'Load the current mainnet fee before requesting a quote.');
     validateAmount(grossWei);
     return quoteSend(grossWei, this.state.feeBps);
   }
@@ -174,10 +213,11 @@ export class ZkPayClient implements ZkPayClientApi {
   private async prepareAction(generation: number): Promise<{ keys: PrivateKeys; tree: MerkleTree; state: PoolState }> {
     await this.sync(); this.assertGeneration(generation);
     const keys = this.requireKeys(), state = this.state;
-    requireCondition(this.tree && state && state.initialized && !state.closed, 'POOL_CLOSED', 'The testnet pool is not open.');
+    requireCondition(this.tree && state && state.initialized && !state.closed, 'POOL_CLOSED', 'The mainnet pool is not open.');
     // A restored checkpoint must still be among the pool's 100 retained roots.
     const session = this.requireSession();
     const result = await session.provider.request({ method: 'eth_call', params: [{ to: this.config.poolAddress, data: poolInterface.encodeFunctionData('isKnownRoot', [this.tree.root]) }, 'latest'] });
+    this.assertGeneration(generation);
     requireCondition(typeof result === 'string' && poolInterface.decodeFunctionResult('isKnownRoot', result)[0] === true, 'STALE_ROOT', 'The indexer checkpoint is no longer in the pool root history. Refresh after indexing catches up.');
     return { keys, tree: this.tree, state };
   }
@@ -197,11 +237,12 @@ export class ZkPayClient implements ZkPayClientApi {
       const inputs = [...this.notes].sort((a, b) => a.amount === b.amount ? 0 : a.amount > b.amount ? -1 : 1).slice(0, 2);
       this.progress({ phase: 'encrypting' });
       const prepared = await prepareTransaction({ keys, tree, inputNotes: inputs, extAmount: amountWei, fee: 0n });
+      this.assertGeneration(generation);
       const proved = await this.prove(prepared);
       this.assertGeneration(generation);
       const latest = await this.getState();
       this.assertGeneration(generation);
-      requireCondition(!latest.indexing, 'INDEXER_CATCHING_UP', 'The indexer is catching up. Refresh before submitting.');
+      requireCondition(!latest.indexing, 'INDEXER_CATCHING_UP', 'Public history is catching up. Refresh before submitting this deposit.');
       requireCondition(latest.initialized && !latest.closed && amountWei <= BigInt(latest.depositLimitWei) && latest.poolEpoch === state.poolEpoch, 'POOL_CHANGED', 'Pool configuration changed while generating the proof. Refresh and try again.');
       this.progress({ phase: 'awaiting-wallet' });
       const hash = await this.requireSession().sendTransaction({ to: this.config.poolAddress, data: poolInterface.encodeFunctionData('transact', [proved.proof, proved.extData]), value: amountWei });
@@ -213,21 +254,27 @@ export class ZkPayClient implements ZkPayClientApi {
   }
   async send(input: SendRequest): Promise<TransactionResult> {
     validateAmount(input.grossWei);
+    return this.sendPrepared(input);
+  }
+  private async sendPrepared(input: Omit<SendRequest, 'grossWei'> & { grossWei?: bigint }): Promise<TransactionResult> {
     if (input.expectedFeeBps !== undefined) validateFeeBps(input.expectedFeeBps);
     const recipient = getAddress(input.recipient);
     requireCondition(recipient !== ZERO_ADDRESS && recipient !== this.config.poolAddress, 'INVALID_RECIPIENT', 'Enter a nonzero recipient address other than the pool.');
     return this.runAction(async (generation) => {
       const { keys, tree, state } = await this.prepareAction(generation);
+      const grossWei = input.grossWei ?? this.getSnapshot().maxSpendableWei;
+      validateAmount(grossWei);
       requireCondition(input.expectedFeeBps === undefined || input.expectedFeeBps === state.feeBps, 'FEE_CHANGED', 'The withdrawal fee changed. Review the refreshed quote before sending.');
-      const quote = quoteSend(input.grossWei, state.feeBps);
-      const inputNotes = selectNotes(this.notes, input.grossWei);
+      const quote = quoteSend(grossWei, state.feeBps);
+      const inputNotes = selectNotes(this.notes, grossWei);
       this.progress({ phase: 'encrypting' });
       const prepared = await prepareTransaction({ keys, tree, inputNotes, extAmount: -quote.netWei, fee: quote.feeWei, recipient, feeRecipient: this.config.relayerAddress });
+      this.assertGeneration(generation);
       const proved = await this.prove(prepared);
       this.assertGeneration(generation); await this.requireSession().assertActive();
       const latest = await this.getState();
       this.assertGeneration(generation);
-      requireCondition(!latest.indexing, 'INDEXER_CATCHING_UP', 'The indexer is catching up. Refresh before submitting.');
+      requireCondition(!latest.indexing, 'INDEXER_CATCHING_UP', 'Public history is catching up. Refresh before submitting this payment.');
       requireCondition(latest.initialized && !latest.closed && latest.feeBps === state.feeBps && latest.poolEpoch === state.poolEpoch, 'POOL_CHANGED', 'Pool configuration changed while generating the proof. Refresh and review the current fee.');
       const requestId = relayRequestId(this.config.poolAddress, proved.proof, proved.extData);
       this.pending = { transactionHash: null, proved, quote, requestId };
@@ -244,8 +291,7 @@ export class ZkPayClient implements ZkPayClientApi {
     });
   }
   async sendMax(recipient: string, options: { expectedFeeBps?: number } = {}): Promise<TransactionResult> {
-    await this.sync();
-    return this.send({ grossWei: this.getSnapshot().maxSpendableWei, recipient, ...options });
+    return this.sendPrepared({ recipient, expectedFeeBps: options.expectedFeeBps });
   }
   private async handleRelay(relay: RelayResponse, quote?: SendQuote): Promise<TransactionResult> {
     this.pending = { ...this.pending, requestId: relay.requestId, transactionHash: relay.transactionHash, quote };
@@ -332,21 +378,30 @@ export class ZkPayClient implements ZkPayClientApi {
     const quote = this.pending?.quote;
     const timeout = options.timeoutMs ?? this.config.confirmationTimeoutMs ?? 120000;
     const deadline = Date.now() + Math.max(timeout, 0);
+    const generation = this.generation;
+    let retry = 0, observedReceipt = '';
+    const wait = () => sleep(Math.min(confirmationDelay(this.config.confirmationPollMs, retry++), Math.max(1, deadline - Date.now())));
     this.progress({ phase: 'confirming', transactionHash, requestId });
     do {
+      // Unmount/disconnect, hidden tabs and offline browsers stop automatic reads.
+      // No success/failure is inferred; a later explicit retry verifies the same ID.
+      if (generation !== this.generation || confirmationPaused()) break;
       let receipt: Receipt | null = null;
       try { receipt = await this.readReceipt(transactionHash); }
       catch (error) { if (error instanceof ZkPayError && ['WRONG_CHAIN', 'SESSION_CHANGED'].includes(error.code)) break; }
+      if (generation !== this.generation || confirmationPaused()) break;
       if (receipt) {
+        if (observedReceipt !== receipt.blockHash) { observedReceipt = receipt.blockHash; retry = 0; }
         requireCondition(receipt.transactionHash.toLowerCase() === transactionHash.toLowerCase() && receipt.to !== null && getAddress(receipt.to) === this.config.poolAddress && /^0x[0-9a-f]+$/i.test(receipt.blockNumber) && /^0x[0-9a-f]{64}$/i.test(receipt.blockHash), 'INVALID_RECEIPT', 'Receipt does not match the submitted pool transaction.');
         let canonical = false;
         try {
           const [block, head] = await Promise.all([this.readCanonicalBlock(receipt.blockNumber), this.readBlockNumber()]);
           canonical = block?.hash.toLowerCase() === receipt.blockHash.toLowerCase() && head - BigInt(receipt.blockNumber) + 1n >= BigInt(this.config.confirmations ?? 2);
         } catch { /* An unavailable/reorganizing read provider keeps the transaction pending. */ }
+        if (generation !== this.generation || confirmationPaused()) break;
         if (!canonical) {
           if (Date.now() >= deadline) break;
-          await sleep(Math.min(this.config.confirmationPollMs ?? 2500, Math.max(1, deadline - Date.now())));
+          await wait();
           continue;
         }
         requireCondition(receipt.status === '0x0' || receipt.status === '0x1', 'INVALID_RECEIPT', 'Receipt is missing execution status.');
@@ -355,7 +410,7 @@ export class ZkPayClient implements ZkPayClientApi {
         catch (error) {
           if (error instanceof ZkPayError && error.code === 'INVALID_RECEIPT') throw error;
           if (Date.now() >= deadline) break;
-          await sleep(Math.min(this.config.confirmationPollMs ?? 2500, Math.max(1, deadline - Date.now())));
+          await wait();
           continue;
         }
         if (receipt.status === '0x0') { this.pending = null; throw new TransactionFailedError('TRANSACTION_REVERTED', `Transaction ${transactionHash} reverted on chain.`, transactionHash, requestId); }
@@ -364,11 +419,16 @@ export class ZkPayClient implements ZkPayClientApi {
         this.pending = null;
         this.progress({ phase: 'confirmed', transactionHash, requestId });
         // Confirmed payment success is independent from indexer refresh availability.
-        try { if (this.session) await this.sync(); } catch { /* A later refresh can catch up. */ }
+        try {
+          if (this.session && !confirmationPaused()) {
+            const refreshed = await this.sync();
+            result.balanceRefreshed = !!refreshed.account && !!refreshed.state && refreshed.state.checkpoint.blockNumber >= result.blockNumber!;
+          }
+        } catch { /* A later refresh can catch up. */ }
         return result;
       }
       if (Date.now() >= deadline) break;
-      await sleep(Math.min(this.config.confirmationPollMs ?? 2500, Math.max(1, deadline - Date.now())));
+      await wait();
     } while (Date.now() <= deadline);
     this.pending = { ...this.pending, transactionHash, requestId, quote };
     return { status: 'pending', transactionHash, requestId, quote };

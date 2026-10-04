@@ -6,7 +6,7 @@ export interface KeyDomain { origin: string; chainId: typeof CHAIN_ID; poolAddre
 export interface PrivateKeys { spendKey: bigint; encryptionKey: CryptoKey; identity: string; domain: Readonly<KeyDomain> }
 
 export function normalizedDomain(domain: KeyDomain): KeyDomain {
-  requireCondition(domain.chainId === CHAIN_ID, 'WRONG_CHAIN', 'Key derivation is limited to Robinhood Chain Testnet.');
+  requireCondition(domain.chainId === CHAIN_ID, 'WRONG_CHAIN', 'Key derivation is limited to Robinhood Chain Mainnet.');
   const origin = new URL(domain.origin).origin;
   requireCondition(origin !== 'null' && origin === domain.origin && /^https?:\/\//.test(origin), 'INVALID_ORIGIN', 'Key origin must be an exact HTTP(S) origin.');
   return { origin, chainId: CHAIN_ID, poolAddress: getAddress(domain.poolAddress), account: getAddress(domain.account) };
@@ -15,7 +15,7 @@ export function normalizedDomain(domain: KeyDomain): KeyDomain {
 export function signingMessage(input: KeyDomain): string {
   const domain = normalizedDomain(input);
   return [
-    'zkPay private balance recovery — Robinhood Chain Testnet',
+    'zkPay private balance recovery — Robinhood Chain Mainnet',
     '',
     'Sign this message to derive your private balance recovery keys.',
     'This signature does not authorize a transaction or transfer ETH.',

@@ -11,7 +11,7 @@ export * from './proof.js';
 export * from './client.js';
 export * from './deployment.js';
 
-// Branding aliases preserve the original implementation and recovery identity.
+// Branding aliases preserve the original mainnet implementation and recovery identity.
 export { ZkPayClient as ZkApiClient, createZkPayClient as createZkApiClient } from './client.js';
 export { ZkPayApi as ZkApiHttpClient } from './api.js';
 export { ZkPayError as ZkApiError } from './constants.js';

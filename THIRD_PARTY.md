@@ -2,13 +2,13 @@
 
 The SDK source is licensed GPL-3.0-only, as recorded in `LICENSE` and package
 metadata. This standalone distribution derives from the zkPay Robinhood
-testnet SDK used by the zkapi application. All upstream licenses remain
+EVM SDK used by the zkapi application. All upstream licenses remain
 unchanged, and no legacy Solana source is relicensed or included.
 
 The original EVM implementation, wallet signing message, key domains, note
 format, Merkle reconstruction, HTTP client, transaction orchestration and tests
-were independently authored in that testnet project. This extraction preserves
-those implementations; the package/export branding does not change protocol
+were independently authored in that EVM project. This release preserves the
+Mainnet implementations; the package/export branding does not change protocol
 bytes or key derivation. No Solana SDK code is included.
 
 | Component | Version | License and purpose |
@@ -36,7 +36,7 @@ obligations. Preserve applicable source, license notices, attribution and build
 inputs in any distribution. The package's `private` flag prevents accidental npm
 publication and does not substitute for a distribution licensing decision.
 No independent audit is claimed. Poseidon uses JavaScript BigInt and does not
-claim constant-time execution; this release is testnet-only.
+claim constant-time execution.
 
 Web Crypto supplies HKDF-SHA-256 and AES-256-GCM; no third-party encryption code
 is copied for note recovery. SHA-256 integrity checks cover all fetched proving

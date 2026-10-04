@@ -1,7 +1,7 @@
 {
   "name": "@zkapi/robinhood-sdk",
-  "version": "0.2.0",
-  "description": "TypeScript SDK for private ETH payments on Robinhood Chain Mainnet and Testnet",
+  "version": "0.3.0",
+  "description": "TypeScript SDK for private ETH payments on Robinhood Chain Mainnet",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
@@ -40,21 +40,22 @@
     "CHANGELOG.md",
     "docs",
     "examples",
+    "scripts/clean-dist.mjs",
     "tsconfig.json",
     "tsconfig.build.json"
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts test/mainnet/*.test.ts",
+    "test": "tsx --test test/*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "test:package": "npm run build && node scripts/check-package.mjs",
     "example:quote": "tsx examples/quote.ts",
     "artifacts": "npm run build && node scripts/download-artifacts.mjs",
     "notices": "node scripts/collect-notices.mjs",
     "prepack": "npm run build",
-    "artifacts:mainnet": "npm run artifacts -- --network=mainnet"
+    "artifacts:mainnet": "npm run artifacts"
   },
   "dependencies": {
     "ethers": "6.17.0",

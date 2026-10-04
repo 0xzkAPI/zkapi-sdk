@@ -7,8 +7,8 @@ import type { ContractProof, ExternalData } from './types.js';
 
 export const TREE_DEPTH = 26;
 export const MAX_AMOUNT = (1n << 120n) - 1n;
-export const PROTOCOL_DOMAIN = keccak256(toUtf8Bytes('zkPay/Robinhood/Testnet/v1/pool'));
-export const EXT_DATA_DOMAIN = keccak256(toUtf8Bytes('zkPay/Robinhood/Testnet/v1/ext-data'));
+export const PROTOCOL_DOMAIN = keccak256(toUtf8Bytes('zkPay/Robinhood/Mainnet/v1/pool'));
+export const EXT_DATA_DOMAIN = keccak256(toUtf8Bytes('zkPay/Robinhood/Mainnet/v1/ext-data'));
 const abi = AbiCoder.defaultAbiCoder();
 
 export function poolDomain(pool: string, chainId = CHAIN_ID): bigint {
@@ -46,5 +46,5 @@ export const POOL_ABI = [
 /** Same normalized idempotency identity independently computed by the relay. */
 export function relayRequestId(pool: string, proof: ContractProof, extData: ExternalData): string {
   const calldata = new Interface(POOL_ABI).encodeFunctionData('transact', [proof, extData]);
-  return keccak256(abi.encode(['string', 'uint256', 'address', 'bytes'], ['zkPay/Robinhood/Testnet/v1/relay', CHAIN_ID, getAddress(pool), calldata]));
+  return keccak256(abi.encode(['string', 'uint256', 'address', 'bytes'], ['zkPay/Robinhood/Mainnet/v1/relay', CHAIN_ID, getAddress(pool), calldata]));
 }

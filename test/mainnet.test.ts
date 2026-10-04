@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AbiCoder, keccak256, toUtf8Bytes } from 'ethers';
-import { API_VERSION, ZkPayApi } from '../../src/mainnet/api.js';
-import { CHAIN_ID, CHAIN_ID_HEX, PROTOCOL, EXPLORER_URL, FIELD } from '../../src/mainnet/constants.js';
-import { signingMessage, deriveKeys } from '../../src/mainnet/keys.js';
-import { PROTOCOL_DOMAIN, EXT_DATA_DOMAIN, poolDomain } from '../../src/mainnet/protocol.js';
+import { API_VERSION, ZkPayApi } from '../src/api.js';
+import { CHAIN_ID, CHAIN_ID_HEX, PROTOCOL, EXPLORER_URL, FIELD } from '../src/constants.js';
+import { signingMessage, deriveKeys } from '../src/keys.js';
+import { PROTOCOL_DOMAIN, EXT_DATA_DOMAIN, poolDomain } from '../src/protocol.js';
 import { config, keyDomain, POOL, testState, wallet } from './fixtures.js';
 
 test('mainnet identities, domains and recovery message are explicit and stable', async () => {
@@ -23,17 +23,17 @@ test('mainnet identities, domains and recovery message are explicit and stable',
   assert.equal(signingMessage(domain), expected);
   const sig = await wallet.signMessage(expected);
   assert.equal((await deriveKeys(domain, sig, sig)).domain.origin, 'https://app.zkpay.sh');
-  const legacyMessage = expected.replaceAll('Mainnet', 'Testnet').replace('zkpay-robinhood-mainnet-v1', 'zkpay-robinhood-testnet-v1').replace('Chain ID: 4663', 'Chain ID: 46630');
+  const legacyMessage = expected.replaceAll('Mainnet', 'Other Network').replace('zkpay-robinhood-mainnet-v1', 'zkpay-robinhood-other-network-v1').replace('Chain ID: 4663', 'Chain ID: 1');
   const legacySig = await wallet.signMessage(legacyMessage);
   await assert.rejects(deriveKeys(domain, legacySig, legacySig), /selected wallet/);
   const abi = AbiCoder.defaultAbiCoder();
-  const legacyDomain = BigInt(keccak256(abi.encode(['bytes32', 'uint256', 'address'], [keccak256(toUtf8Bytes('zkPay/Robinhood/Testnet/v1/pool')), 46630n, POOL]))) % FIELD;
+  const legacyDomain = BigInt(keccak256(abi.encode(['bytes32', 'uint256', 'address'], [keccak256(toUtf8Bytes('zkPay/Robinhood/Other Network/v1/pool')), 1n, POOL]))) % FIELD;
   assert.notEqual(poolDomain(POOL), legacyDomain);
-  assert.throws(() => poolDomain(POOL, 46630 as typeof CHAIN_ID), /Unsupported/);
+  assert.throws(() => poolDomain(POOL, 1 as typeof CHAIN_ID), /Unsupported/);
 });
 
 test('old API protocol/network cannot masquerade as a mainnet deployment', async () => {
-  for (const changed of [{ apiVersion: 'zkpay-robinhood-v1' }, { network: 'Robinhood Chain Testnet' }, { chainId: 46630 }]) {
+  for (const changed of [{ apiVersion: 'zkpay-robinhood-v1' }, { network: 'Robinhood Chain Other Network' }, { chainId: 1 }]) {
     const api = new ZkPayApi({ ...config, fetch: async () => Response.json({ ...testState(), ...changed }) });
     await assert.rejects(api.state(), /pinned Robinhood/);
   }

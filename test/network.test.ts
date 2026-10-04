@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Interface, toUtf8String } from 'ethers';
-import { createZkPayClient } from '../../src/mainnet/client.js';
-import { confirmationDelay } from '../../src/mainnet/polling.js';
-import { createNote, encryptNote } from '../../src/mainnet/notes.js';
-import { nullifier, POOL_ABI, poolDomain } from '../../src/mainnet/protocol.js';
-import { MerkleTree } from '../../src/mainnet/tree.js';
-import { WalletSession } from '../../src/mainnet/wallet.js';
-import type { CommitmentRecord, EventPage, NullifierRecord } from '../../src/mainnet/types.js';
+import { createZkPayClient } from '../src/client.js';
+import { confirmationDelay } from '../src/polling.js';
+import { createNote, encryptNote } from '../src/notes.js';
+import { nullifier, POOL_ABI, poolDomain } from '../src/protocol.js';
+import { MerkleTree } from '../src/tree.js';
+import { WalletSession } from '../src/wallet.js';
+import type { CommitmentRecord, EventPage, NullifierRecord } from '../src/types.js';
 import { BLOCK_HASH, config, HASH, POOL, RECIPIENT, testKeys, testState, VERIFIER, wallet } from './fixtures.js';
 
 const abi = new Interface(POOL_ABI);

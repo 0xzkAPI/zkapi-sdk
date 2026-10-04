@@ -6,23 +6,20 @@ import { join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { ROBINHOOD_TESTNET_DEPLOYMENT } from '../dist/deployment.js';
-import { ROBINHOOD_MAINNET_DEPLOYMENT, MAINNET_ARTIFACT_BASE_URL } from '../dist/mainnet/deployment.js';
+import { ROBINHOOD_MAINNET_DEPLOYMENT, MAINNET_ARTIFACT_BASE_URL } from '../dist/deployment.js';
 
 // Public, fixed allowlist. No environment files, credentials, wallet, or RPC.
 const args = process.argv.slice(2);
-assert.ok(args.length === 0 || (args.length === 1 && ['--network=testnet', '--network=mainnet'].includes(args[0])), 'Use --network=testnet or --network=mainnet.');
-const mainnet = args[0] === '--network=mainnet';
-const deployment = mainnet ? ROBINHOOD_MAINNET_DEPLOYMENT : ROBINHOOD_TESTNET_DEPLOYMENT;
-const sourceBase = mainnet ? MAINNET_ARTIFACT_BASE_URL : 'https://zkapi.org/robinhood/artifacts/zkpay-robinhood-dev-v1-74c42671f8d4f466/';
+assert.ok(args.length === 0, 'This downloader takes no arguments and fetches only the pinned Mainnet release.');
+const deployment = ROBINHOOD_MAINNET_DEPLOYMENT;
+const sourceBase = MAINNET_ARTIFACT_BASE_URL;
 const artifacts = [
   { file: 'transaction2.wasm', hash: deployment.artifactHashes.wasm, maxBytes: 32 * 1024 * 1024 },
   { file: 'transaction2_final.zkey', hash: deployment.artifactHashes.zkey, maxBytes: 256 * 1024 * 1024 },
   { file: 'verification_key.json', hash: deployment.artifactHashes.verificationKey, maxBytes: 1024 * 1024 },
 ];
 const allowedUrls = new Set(artifacts.map(({ file }) => new URL(file, sourceBase).href));
-// Preserve the original Testnet destination; never overwrite it with Mainnet files.
-const destination = fileURLToPath(new URL(mainnet ? '../.artifacts/mainnet/' : '../.artifacts/', import.meta.url));
+const destination = fileURLToPath(new URL('../.artifacts/', import.meta.url));
 await mkdir(destination, { recursive: true });
 const staging = await mkdtemp(join(destination, '.download-'));
 
@@ -55,7 +52,7 @@ try {
   }
   // Nothing is promoted until all three files pass their identity checks.
   for (const { file } of artifacts) await rename(join(staging, file), join(destination, file));
-  console.log(`Verified ${mainnet ? 'mainnet' : 'testnet'} artifacts saved to ${mainnet ? '.artifacts/mainnet/' : '.artifacts/'}. Copy these three files to your application artifact directory.`);
+  console.log('Verified Mainnet artifacts saved to .artifacts/. Copy these three files to your application artifact directory.');
 } finally {
   await rm(staging, { recursive: true, force: true });
 }

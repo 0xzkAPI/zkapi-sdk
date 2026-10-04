@@ -1,6 +1,6 @@
 # SDK integration
 
-Version 0.2 provides separate SDK entry points for Robinhood Chain Mainnet `4663` and Testnet `46630`. Both support native ETH only; USDG and other tokens are not implemented. Amounts are `bigint` wei; convert user input with `parseEtherExact`, never JavaScript `Number`.
+Version 0.3 supports native ETH on Robinhood Chain Mainnet `4663` only; USDG and other tokens are not implemented. Amounts are `bigint` wei; convert user input with `parseEtherExact`, never JavaScript `Number`.
 
 ## Install from source
 
@@ -12,58 +12,38 @@ npm run check
 npm pack
 ```
 
-Install the resulting `zkapi-robinhood-sdk-0.2.0.tgz` into your application using its local file path. No npm release is assumed. Node applications use ESM; browser applications use an ES2022-capable bundler such as Vite or esbuild. Type declarations are included. CommonJS `require()` is not an advertised entry point.
+Install the resulting `zkapi-robinhood-sdk-0.3.0.tgz` into your application using its local file path. No npm release is assumed. Node applications use ESM; browser applications use an ES2022-capable bundler such as Vite or esbuild. Type declarations are included. CommonJS `require()` is not an advertised entry point.
 
-## Choose a network and RPC
+## Configure Mainnet and your RPC
 
-| Import | Network | Configuration helper |
-| --- | --- | --- |
-| `@zkapi/robinhood-sdk` | Testnet `46630` | `createRobinhoodTestnetConfig` |
-| `@zkapi/robinhood-sdk/mainnet` | Mainnet `4663`, real ETH | `createRobinhoodMainnetConfig` |
+Import the client, `createRobinhoodMainnetConfig`, types, and error predicates from `@zkapi/robinhood-sdk`. Every client uses Mainnet and can move real ETH when a transaction method is called. The optional `/mainnet` compatibility subpath re-exports the same implementation and constructors; it does not create a separate client identity.
 
-The root import remains Testnet. It never selects Mainnet automatically. Import the client, helper, types, and error predicates from the same entry point. In particular, Mainnet errors must be classified with `isDefiniteTransactionFailure` from `/mainnet`; the two entry points have separate error constructors.
-
-Both helpers and direct `ZkApiConfig` objects **require a caller-supplied `rpcUrl`**. Version 0.2 does not bundle a default RPC, discover one from the API, or fall back to another provider. Existing 0.1 integrations must add this field.
+The helper and direct `ZkApiConfig` objects **require a caller-supplied `rpcUrl`**. The SDK does not bundle a default RPC, discover one from the API, or fall back to another provider.
 
 Connected chain reads use the selected EIP-1193 wallet provider. Receipt recovery without an active wallet session uses HTTP JSON-RPC at your `rpcUrl`. When a wallet needs `wallet_addEthereumChain`, the SDK supplies this same caller-selected URL. Adding a chain does not guarantee that a wallet replaces an already configured RPC. Wallet signing and deposit submission remain wallet operations.
 
-Your `apiUrl` independently selects the public-event indexer and relay. Choosing an RPC does not replace those services, and receipt recovery does not fall back to an API `/rpc` route. The caller-selected RPC must support the selected network and the historical reads needed to verify receipts.
+Your `apiUrl` independently selects the public-event indexer and relay. Choosing an RPC does not replace those services, and receipt recovery does not fall back to an API `/rpc` route. The caller-selected RPC must support Robinhood Chain Mainnet and the historical reads needed to verify receipts.
 
 RPC URLs require HTTPS, except explicit HTTP loopback development. Embedded usernames, passwords, and fragments are rejected. Provider paths and query parameters are allowed; they may contain API credentials. Do not log the URL or expose a server-only credential in browser configuration. The URL is also shared with the wallet when adding the chain.
 
 ## Deployment and browser setup
 
-`createRobinhoodTestnetConfig` requires the recovery origin, RPC, API, and artifact directory explicitly. Supply `rpcUrl` from your application's configuration:
-
-```ts
-import { createRobinhoodTestnetConfig, createZkApiClient } from '@zkapi/robinhood-sdk';
-
-export function createTestnetClient(rpcUrl: string) {
-  return createZkApiClient(createRobinhoodTestnetConfig({
-    origin: window.location.origin,
-    rpcUrl,
-    apiUrl: new URL('/api/robinhood', window.location.origin).href,
-    artifactBaseUrl: new URL('/zkapi-artifacts/testnet/', window.location.origin).href,
-  }));
-}
-```
-
-The Mainnet helper requires `origin` and `rpcUrl`; `apiUrl` and `artifactBaseUrl` are optional. Its defaults are `MAINNET_API_URL` (`https://app.zkapi.org/api/hood`) and `MAINNET_ARTIFACT_BASE_URL` (`https://app.zkapi.org/hood/artifacts/zkpay-robinhood-mainnet-v1-4af878b0d007a820/`). These defaults are service locations, not an availability or cross-origin access guarantee. A third-party browser integration should explicitly configure accessible endpoints:
+`createRobinhoodMainnetConfig` requires `origin` and `rpcUrl`; `apiUrl` and `artifactBaseUrl` are optional. Its defaults are `MAINNET_API_URL` (`https://app.zkapi.org/api/hood`) and `MAINNET_ARTIFACT_BASE_URL` (`https://app.zkapi.org/hood/artifacts/zkpay-robinhood-mainnet-v1-4af878b0d007a820/`). These defaults are service locations, not an availability or cross-origin access guarantee. A third-party browser integration should explicitly configure accessible endpoints:
 
 ```ts
 import {
   createRobinhoodMainnetConfig,
   createZkApiClient,
   formatEtherExact,
-} from '@zkapi/robinhood-sdk/mainnet';
-import type { Eip1193Provider } from '@zkapi/robinhood-sdk/mainnet';
+} from '@zkapi/robinhood-sdk';
+import type { Eip1193Provider } from '@zkapi/robinhood-sdk';
 
 export async function readMainnetBalance(provider: Eip1193Provider, rpcUrl: string) {
   const client = createZkApiClient(createRobinhoodMainnetConfig({
     origin: window.location.origin,
     rpcUrl,
     apiUrl: new URL('/api/hood', window.location.origin).href,
-    artifactBaseUrl: new URL('/zkapi-artifacts/mainnet/', window.location.origin).href,
+    artifactBaseUrl: new URL('/zkapi-artifacts/', window.location.origin).href,
   }));
   try {
     await client.connect(provider, { switchChain: true });
@@ -82,41 +62,38 @@ This helper reads Mainnet state and requests sensitive recovery signatures; it d
 
 Third-party browsers cannot assume the official API's exact-origin CORS policy permits them. Supply a same-origin proxy or compatible self-hosted indexer/relay. Your HTTP RPC and remote proof host must separately permit browser access. Browser Web Crypto and wallet flows require HTTPS or localhost. A proxy needs no recovery signature, secret key, or witness.
 
-The helpers accept absolute HTTPS API/artifact URLs or HTTP loopback URLs, without embedded credentials, query strings, or fragments. RPC validation is separate and permits query parameters. A directly constructed `ZkApiConfig` must still match the chosen entry point's chain and pinned backend identity.
+The helper accepts absolute HTTPS API/artifact URLs or HTTP loopback URLs, without embedded credentials, query strings, or fragments. RPC validation is separate and permits query parameters. A directly constructed `ZkApiConfig` must still match Mainnet and pinned backend identity.
 
-| Public identity | Testnet | Mainnet |
-| --- | --- | --- |
-| Chain ID | `46630` / `0xb626` | `4663` / `0x1237` |
-| Pool | `0x5070c561A590bF43D324ac7fcFA70D9d7d767bFA` | `0xF3A2D484d909C48C8581B99750B28D5F9af3E1E6` |
-| Verifier | `0xedB7474cbD7121D8E47D352Ac4E0aC0Fcb8AD7Aa` | `0x952F13f3c6a41B291f250EF8D0b56986E1F89da0` |
-| Relayer | `0xDF70f0ACF15D1495849262D8f814E5aDCa0dD92e` | `0x0D7fd3755ca7122db807B21BAc09Bc327a9A7289` |
-| Deployment block | `124440222` | `72985549` |
-| Artifact ID | `zkpay-robinhood-dev-v1-74c42671f8d4f466` | `zkpay-robinhood-mainnet-v1-4af878b0d007a820` |
-| Helper receipt confirmations, including receipt block | `33` | `33` |
-| Wire API version | `zkpay-robinhood-v1` | `zkpay-robinhood-mainnet-v1` |
+| Public identity | Pinned value |
+| --- | --- |
+| Chain ID | `4663` / `0x1237` |
+| Pool | `0xF3A2D484d909C48C8581B99750B28D5F9af3E1E6` |
+| Verifier | `0x952F13f3c6a41B291f250EF8D0b56986E1F89da0` |
+| Relayer | `0x0D7fd3755ca7122db807B21BAc09Bc327a9A7289` |
+| Deployment block | `72985549` |
+| Artifact ID | `zkpay-robinhood-mainnet-v1-4af878b0d007a820` |
+| Helper receipt confirmations, including receipt block | `33` |
+| Wire API version | `zkpay-robinhood-mainnet-v1` |
 
 ## Proving artifacts
 
-The two profiles use different proving/verification keys despite identical filenames. Keep their directories separate. From the **SDK source checkout**, download and verify them:
+From the **SDK source checkout**, download and verify the pinned Mainnet proving files:
 
 ```sh
 npm run artifacts
-npm run artifacts:mainnet
-mkdir -p /path/to/your-app/public/zkapi-artifacts/testnet
-mkdir -p /path/to/your-app/public/zkapi-artifacts/mainnet
-cp .artifacts/transaction2.wasm .artifacts/transaction2_final.zkey .artifacts/verification_key.json /path/to/your-app/public/zkapi-artifacts/testnet/
-cp .artifacts/mainnet/transaction2.wasm .artifacts/mainnet/transaction2_final.zkey .artifacts/mainnet/verification_key.json /path/to/your-app/public/zkapi-artifacts/mainnet/
+mkdir -p /path/to/your-app/public/zkapi-artifacts
+cp .artifacts/transaction2.wasm .artifacts/transaction2_final.zkey .artifacts/verification_key.json /path/to/your-app/public/zkapi-artifacts/
 ```
 
-Replace `/path/to/your-app` with the real application directory. The default command retains Testnet files in `.artifacts/`; the explicit Mainnet command writes `.artifacts/mainnet/`. `scripts/download-artifacts.mjs` selects three fixed public HTTPS URLs for the requested network, rejects redirects, bounds sizes, and checks all three SHA-256 hashes before promoting temporary files. It does not read credentials, wallets, environment files, or RPC services. Downloading artifacts is an explicit network operation; normal SDK checks remain offline. The downloader script is not included in the installed tarball.
+Replace `/path/to/your-app` with the real application directory. The command writes verified Mainnet files to ignored `.artifacts/`. `scripts/download-artifacts.mjs` selects three fixed public HTTPS URLs, rejects redirects, bounds sizes, and checks all three SHA-256 hashes before promoting temporary files. It does not read credentials, wallets, environment files, or RPC services. Downloading artifacts is an explicit network operation; normal SDK checks remain offline. The downloader script is not included in the installed tarball. `npm run artifacts:mainnet` is an alias for the same command and destination.
 
-Testnet files are published under `https://zkapi.org/robinhood/artifacts/zkpay-robinhood-dev-v1-74c42671f8d4f466/`; Mainnet uses the `MAINNET_ARTIFACT_BASE_URL` above. For self-hosting, set `artifactBaseUrl` to the matching application directory. These are public files, not secrets. Host all three unchanged; generating a new proving key does not produce a compatible deployment.
+Files are published at `MAINNET_ARTIFACT_BASE_URL` above. For self-hosting, set `artifactBaseUrl` to your application directory. These are public files, not secrets. Host all three unchanged; generating a new proving key does not produce a compatible deployment.
 
-| File | Testnet SHA-256 | Mainnet SHA-256 |
-| --- | --- | --- |
-| `transaction2.wasm` | `f66e03b4056ba4c5d230e38c41ba4d81a9347d41222af03b15b47c4a61b4fdf7` | `f66e03b4056ba4c5d230e38c41ba4d81a9347d41222af03b15b47c4a61b4fdf7` |
-| `transaction2_final.zkey` | `aa400bb5c9a2c2c3da1ec44c31b9e6e689127339f99c3c04781a0fb92445383f` | `1760a70b18e0344facc7513e4bef845c722fc35e39c1b6993da5217f65ef3a7f` |
-| `verification_key.json` | `b32299593009aaad870ca8a35aa8a2f1a3950f57f898da5a3ac484c323335a4c` | `de305d44edadaddbbdd140a2431c3cf4d07be7a901610481eeef4ad97c0b5943` |
+| File | SHA-256 |
+| --- | --- |
+| `transaction2.wasm` | `f66e03b4056ba4c5d230e38c41ba4d81a9347d41222af03b15b47c4a61b4fdf7` |
+| `transaction2_final.zkey` | `1760a70b18e0344facc7513e4bef845c722fc35e39c1b6993da5217f65ef3a7f` |
+| `verification_key.json` | `de305d44edadaddbbdd140a2431c3cf4d07be7a901610481eeef4ad97c0b5943` |
 
 The SDK downloads and verifies the files only when proving is required. `snarkjs` is loaded lazily. The complete locally generated proof and its public signals are verified before submission. A matching SHA-256 hash proves artifact identity, not that the circuit or ceremony was independently audited.
 
@@ -133,7 +110,7 @@ const balance = await client.unlock();
 
 `unlock` requests two matching recovery signatures, derives keys in memory, downloads public indexed events, reconstructs the Merkle tree, and restores owned notes. It does not broadcast a transaction. Wallet account/network changes or disconnect events invalidate the session and clear private state.
 
-Keep the exact `origin` stable. Both official network profiles retain `LEGACY_RECOVERY_ORIGIN` (`https://app.zkpay.sh`) and their original signing text. Testnet's recovery protocol remains `zkpay-robinhood-testnet-v1`; Mainnet's is `zkpay-robinhood-mainnet-v1`. Their chains, pools, domains, and balances are separate even for the same wallet and origin. A new integration using its own origin creates another private identity. Only use the legacy constant for an intentional compatibility flow and explain the legacy signing message to the user. Never rewrite `zkPay` strings inside the signature, HKDF inputs, note format, protocol domains, or API version.
+Keep the exact `origin` stable. The official app retains `LEGACY_RECOVERY_ORIGIN` (`https://app.zkpay.sh`), its original signing text, and the `zkpay-robinhood-mainnet-v1` recovery protocol. A new integration using its own origin creates another private identity, even for the same wallet and pool. Only use the legacy constant for an intentional compatibility flow and explain the legacy signing message to the user. Never rewrite `zkPay` strings inside the signature, HKDF inputs, note format, protocol domains, or API version.
 
 ## Balances and fees
 
@@ -206,7 +183,7 @@ Here `submittedKind` is the operation your application recorded before submissio
 
 For a saved deposit hash, always pass the saved request ID to `waitForConfirmation` to bind the receipt to the original action. Canonical receipt checks compare the transaction hash, pool, block identity, confirmation depth, calldata, ETH value, and request fingerprint. Provider unavailability remains pending. A confirmed receipt remains confirmed even if the next balance refresh fails. Retain its public reconciliation record until a fresh, non-indexing balance checkpoint reaches the confirmed block; a page reload must not turn an older balance into spendable funds.
 
-`isDefiniteTransactionFailure(error)` from the same network entry point recognizes `TransactionFailedError` for validated terminal failures. Other exceptions, including `HttpError`, wallet/session changes after submission, and network errors, are not automatically failed payments. Preserve the original identifiers and keep transaction controls blocked until an unknown outcome is reconciled.
+`isDefiniteTransactionFailure(error)` recognizes `TransactionFailedError` for validated terminal failures. Other exceptions, including `HttpError`, wallet/session changes after submission, and network errors, are not automatically failed payments. Preserve the original identifiers and keep transaction controls blocked until an unknown outcome is reconciled.
 
 ## Public client methods
 
@@ -230,7 +207,7 @@ For a saved deposit hash, always pass the saved request ID to `waitForConfirmati
 
 ## HTTP transport
 
-The configured `apiUrl` is an indexer/relay base prefix, commonly `/api/robinhood` for Testnet or `/api/hood` for Mainnet behind your same-origin proxy. The service must implement:
+The configured `apiUrl` is an indexer/relay base prefix, commonly `/api/hood` behind your same-origin proxy. The service must implement:
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -239,7 +216,7 @@ The configured `apiUrl` is an indexer/relay base prefix, commonly `/api/robinhoo
 | `POST /relay` | Proof/public-data submission for a withdrawal |
 | `GET /relay/:requestId` | Reconciliation of the same relay request |
 
-Wire API versions are `zkpay-robinhood-v1` for Testnet and `zkpay-robinhood-mainnet-v1` for Mainnet. Amounts/field values use canonical decimal strings; chain IDs are the corresponding numbers `46630` or `4663`; addresses and bytes are hex. The relay accepts proof and public external data, not private keys, recovery signatures, witnesses, or arbitrary transaction calldata.
+The wire API version is `zkpay-robinhood-mainnet-v1`. Amounts/field values use canonical decimal strings; the chain ID is the number `4663`; addresses and bytes are hex. The relay accepts proof and public external data, not private keys, recovery signatures, witnesses, or arbitrary transaction calldata.
 
 HTTP chain reads are JSON-RPC POSTs sent directly to your required `rpcUrl`, not `${apiUrl}/rpc`. Browser CORS and application proxy policies are deployment responsibilities for each transport.
 
@@ -247,12 +224,12 @@ HTTP chain reads are JSON-RPC POSTs sent directly to your required `rpcUrl`, not
 
 | Symptom | Check and next action |
 | --- | --- |
-| Missing or invalid `rpcUrl` | Provide an explicit HTTPS endpoint for the chosen chain. Neither helper has a default RPC. |
-| `WRONG_CHAIN` or deployment mismatch | Match the import, helper, wallet network, RPC, and API profile; do not substitute Testnet services into a Mainnet client. |
+| Missing or invalid `rpcUrl` | Provide an explicit HTTPS endpoint for Robinhood Chain Mainnet. The helper has no default RPC. |
+| `WRONG_CHAIN` or deployment mismatch | Match the wallet, RPC, and API to Mainnet chain `4663` and the pinned deployment. |
 | Browser CORS failure | Configure browser access separately for API, RPC, and artifact host; a working wallet connection does not configure HTTP access. |
 | Expected balance is absent | Check the original wallet, recovery origin, chain, and pool before depositing again. Different identity inputs restore different balances. |
 | Indexer catching up or stale checkpoint | Keep spending disabled and refresh when public history reaches the required block. |
-| Artifact integrity error | Serve the three files for the selected profile unchanged. Clear incorrect deployment assets instead of disabling hash checks. |
+| Artifact integrity error | Serve the three pinned Mainnet files unchanged. Clear incorrect deployment assets instead of disabling hash checks. |
 | RPC unavailable or payment pending | Preserve the original hash/request ID and resume checks with the configured provider. Do not create a replacement payment or assume failure. |
 
 ## Testing and limitations

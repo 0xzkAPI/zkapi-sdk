@@ -52,7 +52,7 @@ test('rate limits, reorgs, busy responses and proxy failures preserve and retry 
   }
   assert.equal(submitted.length, 8);
   assert.ok(submitted.every((body) => body === submitted[0]));
-  assert.deepEqual(JSON.parse(submitted[0]), { chainId: 46630, pool: POOL, proof: fixture.proved.proof, extData: fixture.proved.extData });
+  assert.deepEqual(JSON.parse(submitted[0]), { chainId: 4663, pool: POOL, proof: fixture.proved.proof, extData: fixture.proved.extData });
 });
 
 test('an explicit invalid-proof rejection releases only its pending request', async () => {
@@ -84,7 +84,7 @@ test('known unsigned preparation failure is definitive but a hash requires an on
   const signed = pendingClient(async (input, init) => {
     if (String(input).endsWith('/rpc')) {
       const request = JSON.parse(String(init?.body));
-      return Response.json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId' ? '0xb626' : null });
+      return Response.json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId' ? '0x1237' : null });
     }
     return Response.json({ requestId, status: 'failed', transactionHash: HASH, error: 'TRANSACTION_REVERTED' });
   });

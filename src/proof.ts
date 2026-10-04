@@ -99,7 +99,7 @@ export async function prepareTransaction(input: {
 async function fetchArtifact(location: ArtifactLocation, fetcher: typeof fetch, maxBytes: number): Promise<Uint8Array> {
   requireCondition(/^[0-9a-f]{64}$/i.test(location.sha256), 'INVALID_ARTIFACT', 'Artifact SHA-256 identity must be pinned before proving.');
   const response = await fetcher(location.url, { credentials: 'omit', cache: 'force-cache' });
-  requireCondition(response.ok, 'ARTIFACT_DOWNLOAD', 'Could not load independent testnet proof artifacts.');
+  requireCondition(response.ok, 'ARTIFACT_DOWNLOAD', 'Could not load independent mainnet proof artifacts.');
   const bytes = new Uint8Array(await response.arrayBuffer());
   requireCondition(bytes.length > 0 && bytes.length <= maxBytes, 'INVALID_ARTIFACT', 'Artifact size is outside the allowed range.');
   const hash = hexlify(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes)))).slice(2);
@@ -113,7 +113,7 @@ export async function loadArtifacts(artifacts: ProofArtifacts, fetcher: typeof f
     fetchArtifact(artifacts.verificationKey, fetcher, 1024 * 1024),
   ]);
   const verificationKey = JSON.parse(new TextDecoder().decode(verificationBytes));
-  requireCondition(verificationKey.protocol === 'groth16' && verificationKey.curve === 'bn128' && verificationKey.nPublic === 8, 'INVALID_ARTIFACT', 'Verification key is not for the expected two-input testnet circuit.');
+  requireCondition(verificationKey.protocol === 'groth16' && verificationKey.curve === 'bn128' && verificationKey.nPublic === 8, 'INVALID_ARTIFACT', 'Verification key is not for the expected two-input mainnet circuit.');
   return { wasm, zkey, verificationKey };
 }
 

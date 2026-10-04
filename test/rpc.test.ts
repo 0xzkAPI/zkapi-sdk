@@ -1,11 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as testnet from '../src/index.js';
-import * as mainnet from '../src/mainnet/index.js';
+import * as mainnet from '../src/index.js';
 
 const rpcUrl = 'https://caller.example/rpc?token=caller-owned';
 const profiles = [
-  { sdk: testnet, create: (rpc: string) => testnet.createRobinhoodTestnetConfig({ origin: 'https://consumer.example', rpcUrl: rpc, apiUrl: 'https://consumer.example/api/robinhood', artifactBaseUrl: 'https://consumer.example/artifacts/' }), switchChain: testnet.switchToTestnet },
   { sdk: mainnet, create: (rpc: string) => mainnet.createRobinhoodMainnetConfig({ origin: 'https://consumer.example', rpcUrl: rpc }), switchChain: mainnet.switchToMainnet },
 ];
 
@@ -72,7 +70,7 @@ for (const profile of profiles) {
       const body = JSON.parse(String(init?.body));
       methods.push(body.method);
       assert.equal(body.method, 'eth_chainId', 'wrong-chain transport must never read a receipt');
-      return Response.json({ jsonrpc: '2.0', id: body.id, result: profile.sdk.CHAIN_ID === 4663 ? '0xb626' : '0x1237' });
+      return Response.json({ jsonrpc: '2.0', id: body.id, result: '0x1' });
     };
     const client = profile.sdk.createZkApiClient({ ...profile.create(rpcUrl), fetch: fetcher } as never);
     const result = await client.waitForConfirmation('0x' + 'ab'.repeat(32), { timeoutMs: 0 });

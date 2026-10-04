@@ -28,16 +28,16 @@ export function discoverWallets(onWallet: (detail: Eip6963ProviderDetail) => voi
 
 export async function assertChain(provider: Eip1193Provider): Promise<void> {
   const chainId = await provider.request({ method: 'eth_chainId' });
-  requireCondition(typeof chainId === 'string' && /^0x[0-9a-f]+$/i.test(chainId) && BigInt(chainId) === BigInt(CHAIN_ID), 'WRONG_CHAIN', 'Switch your wallet to Robinhood Chain Testnet (46630).');
+  requireCondition(typeof chainId === 'string' && /^0x[0-9a-f]+$/i.test(chainId) && BigInt(chainId) === BigInt(CHAIN_ID), 'WRONG_CHAIN', 'Switch your wallet to Robinhood Chain Mainnet (4663).');
 }
 
-export async function switchToTestnet(provider: Eip1193Provider, rpcUrl: string): Promise<void> {
+export async function switchToMainnet(provider: Eip1193Provider, rpcUrl: string): Promise<void> {
   const endpoint = validateRpcUrl(rpcUrl);
   try { await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] }); }
   catch (error) {
     if ((error as { code?: number })?.code !== 4902) throw error;
     await provider.request({ method: 'wallet_addEthereumChain', params: [{
-      chainId: CHAIN_ID_HEX, chainName: 'Robinhood Chain Testnet',
+      chainId: CHAIN_ID_HEX, chainName: 'Robinhood Chain Mainnet',
       nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
       rpcUrls: [endpoint], blockExplorerUrls: [EXPLORER_URL],
     }] });
@@ -56,14 +56,14 @@ export class WalletSession {
   }
 
   static async connect(provider: Eip1193Provider, options: { switchChain?: boolean; rpcUrl?: string; onInvalidate?: () => void } = {}): Promise<WalletSession> {
-    if (options.switchChain) await switchToTestnet(provider, options.rpcUrl!);
+    if (options.switchChain) await switchToMainnet(provider, options.rpcUrl!);
     await assertChain(provider);
     const accounts = await provider.request({ method: 'eth_requestAccounts' });
     requireCondition(Array.isArray(accounts) && typeof accounts[0] === 'string', 'NO_ACCOUNT', 'No EVM wallet account was selected.');
     const account = getAddress(accounts[0]);
     await assertChain(provider);
     const code = await provider.request({ method: 'eth_getCode', params: [account, 'latest'] });
-    requireCondition(code === '0x' || code === '0x0', 'SMART_WALLET_UNSUPPORTED', 'This testnet release supports EOA wallets only; smart contract and delegated accounts are not supported.');
+    requireCondition(code === '0x' || code === '0x0', 'SMART_WALLET_UNSUPPORTED', 'This mainnet release supports EOA wallets only; smart contract and delegated accounts are not supported.');
     return new WalletSession(provider, account, options.onInvalidate);
   }
 

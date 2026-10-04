@@ -8,7 +8,7 @@ import type { ContractProof, ExternalData, Progress } from '../src/types.js';
 import { BLOCK_HASH, config, HASH, POOL, RECIPIENT, testState, VERIFIER, wallet } from './fixtures.js';
 
 const abi = new Interface(POOL_ABI);
-function environment(options: { receipt?: 'success' | 'revert' | 'pending'; failState?: () => boolean; canonical?: boolean; transactionKind?: 'deposit' | 'send'; transactionRecipient?: string; feeBps?: number; indexing?: () => boolean; checkpoint?: () => number } = {}) {
+function environment(options: { receipt?: 'success' | 'revert' | 'pending'; failState?: () => boolean; canonical?: boolean; transactionKind?: 'deposit' | 'send'; transactionRecipient?: string; feeBps?: number; checkpoint?: () => number } = {}) {
   const events = new Map<string, (...args: unknown[]) => void>();
   const calls: string[] = [];
   const proof: ContractProof = { pA: ['0', '0'], pB: [['0', '0'], ['0', '0']], pC: ['0', '0'], root: '0', inputNullifiers: ['1', '2'], outputCommitments: ['3', '4'], publicAmount: '1', extDataHash: '0', poolDomain: poolDomain(POOL).toString() };
@@ -18,7 +18,7 @@ function environment(options: { receipt?: 'success' | 'revert' | 'pending'; fail
     removeListener: (event: string) => { events.delete(event); },
     request: async ({ method, params }: { method: string; params?: unknown[] | Record<string, unknown> }): Promise<unknown> => {
       calls.push(method);
-      if (method === 'eth_chainId') return '0xb626';
+      if (method === 'eth_chainId') return '0x1237';
       if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [wallet.address];
       if (method === 'eth_getCode') return '0x';
       if (method === 'eth_getBalance') return '0xde0b6b3a7640000';
@@ -44,11 +44,11 @@ function environment(options: { receipt?: 'success' | 'revert' | 'pending'; fail
     }
     if (path.endsWith('/state')) {
       if (options.failState?.()) throw new Error('offline');
-      const state = testState(); state.checkpoint.blockNumber = options.checkpoint?.() ?? state.checkpoint.blockNumber;
-      return Response.json({ ...state, feeBps: options.feeBps ?? 20, indexing: options.indexing?.() ?? false });
+      const current = testState(); if (options.checkpoint) current.checkpoint.blockNumber = options.checkpoint();
+      return Response.json({ ...current, feeBps: options.feeBps ?? 20 });
     }
     if (path.includes('/events?')) {
-      const state = testState();
+      const state = testState(); if (options.checkpoint) state.checkpoint.blockNumber = options.checkpoint();
       return Response.json({ apiVersion: state.apiVersion, chainId: state.chainId, pool: state.pool, checkpoint: state.checkpoint, commitments: [], nullifiers: [], nextFrom: 0, nextNullifierFrom: 0, hasMore: false });
     }
     throw new Error(`Unexpected path ${path}`);
@@ -58,7 +58,7 @@ function environment(options: { receipt?: 'success' | 'revert' | 'pending'; fail
 
 test('backend mismatch rejects before wallet account or signature requests', async () => {
   const env = environment();
-  const state = { ...testState(), chainId: 4663 };
+  const state = { ...testState(), chainId: 1 };
   const client = createZkPayClient({ ...config, fetch: async () => Response.json(state) });
   await assert.rejects(client.connect(env.provider), /pinned Robinhood/);
   assert.equal(env.calls.length, 0);
@@ -110,6 +110,16 @@ test('successful canonical receipt stays confirmed when balance refresh is offli
   assert.equal(result.status, 'confirmed');
   assert.equal(result.transactionHash, HASH);
   assert.equal(result.blockNumber, 20);
+  assert.notEqual(result.balanceRefreshed, true);
+});
+
+test('confirmed result reports a successful indexed refresh so the UI need not repeat it', async () => {
+  const env = environment();
+  const client = createZkPayClient({ ...config, fetch: env.fetcher });
+  await client.connect(env.provider); await client.unlock();
+  const result = await client.waitForConfirmation(HASH, { requestId: env.requestId });
+  assert.equal(result.status, 'confirmed'); assert.equal(result.balanceRefreshed, true);
+  assert.equal(client.getSnapshot().state!.checkpoint.blockNumber, result.blockNumber);
 });
 
 test('reorged receipt stays pending; reverted receipt never confirms', async () => {
@@ -175,35 +185,6 @@ test('closed pool exposes zero spendable balance without treating root0 as an em
 });
 
 
-test('indexer catch-up blocks recovery signatures and submissions, then recovers', async () => {
-  let indexing = false;
-  const env = environment({ indexing: () => indexing });
-  const client = createZkPayClient({ ...config, fetch: env.fetcher });
-  await client.connect(env.provider); await client.unlock();
-  const signatures = env.calls.filter(method => method === 'personal_sign').length;
-  indexing = true;
-  const catchingUp = (error: unknown) => (error as { code?: string }).code === 'INDEXER_CATCHING_UP';
-  await assert.rejects(client.sync(), catchingUp);
-  await assert.rejects(client.unlock(), catchingUp);
-  await assert.rejects(client.deposit(1n), catchingUp);
-  assert.equal(env.calls.filter(method => method === 'personal_sign').length, signatures);
-  assert.equal(env.calls.includes('eth_sendTransaction'), false);
-  indexing = false;
-  assert.equal((await client.sync()).unlocked, true);
-  client.disconnect();
-});
-
-test('non-JSON upstream failure is readable and never proves a relay was rejected', async () => {
-  const api = new ZkPayApi({ ...config, fetch: async () => new Response('<html>private upstream detail</html>', { status: 503 }) });
-  await assert.rejects(api.state(), (error: unknown) => {
-    assert.equal((error as { code: string }).code, 'INVALID_RESPONSE');
-    assert.match((error as Error).message, /temporarily unavailable/);
-    assert.doesNotMatch((error as Error).message, /html|private upstream/);
-    return true;
-  });
-});
-
-
 test('confirmed receipt keeps cached older balance stale until its checkpoint catches up', async () => {
   let checkpoint = 20;
   const env = environment({ checkpoint: () => checkpoint });
@@ -215,6 +196,9 @@ test('confirmed receipt keeps cached older balance stale until its checkpoint ca
   assert.equal(confirmed.blockNumber, 20);
   const catchingUp = (error: unknown) => (error as { code?: string }).code === 'INDEXER_CATCHING_UP';
   await assert.rejects(client.sync(), catchingUp);
+  const signedBefore = env.calls.filter(x => x === 'personal_sign').length;
+  await assert.rejects(client.unlock(), catchingUp);
+  assert.equal(env.calls.filter(x => x === 'personal_sign').length, signedBefore);
   await assert.rejects(client.deposit(1n), catchingUp);
   checkpoint = 20;
   assert.equal((await client.sync()).state!.checkpoint.blockNumber, 20);

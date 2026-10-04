@@ -40,7 +40,7 @@ test('deterministic verified EOA keys and chain/pool/account/origin separation',
   const otherWallet = new Wallet(`0x${'2'.padStart(64, '0')}`);
   const wrongSignature = await otherWallet.signMessage(signingMessage(keyDomain));
   await assert.rejects(deriveKeys(keyDomain, wrongSignature, wrongSignature), /selected wallet/);
-  assert.throws(() => signingMessage({ ...keyDomain, chainId: 4663 as typeof CHAIN_ID }), /limited/);
+  assert.throws(() => signingMessage({ ...keyDomain, chainId: 1 as typeof CHAIN_ID }), /limited/);
 });
 
 test('high-s ECDSA representation normalizes without changing recovery keys', async () => {
@@ -128,10 +128,10 @@ test('external hashes and public keys separate pools and bind recipient and ciph
 
 test('wrong chain fails before account/sign requests; smart wallet rejected', async () => {
   const calls: string[] = [];
-  const wrong = { request: async ({ method }: { method: string }) => { calls.push(method); return '0x1237'; } };
-  await assert.rejects(WalletSession.connect(wrong), /46630/);
+  const wrong = { request: async ({ method }: { method: string }) => { calls.push(method); return '0x1'; } };
+  await assert.rejects(WalletSession.connect(wrong), /4663/);
   assert.deepEqual(calls, ['eth_chainId']);
-  const smart = { request: async ({ method }: { method: string }) => method === 'eth_chainId' ? '0xb626' : method === 'eth_requestAccounts' ? [wallet.address] : '0xabcd' };
+  const smart = { request: async ({ method }: { method: string }) => method === 'eth_chainId' ? '0x1237' : method === 'eth_requestAccounts' ? [wallet.address] : '0xabcd' };
   await assert.rejects(WalletSession.connect(smart), /EOA/);
-  await assertChain({ request: async () => '0xb626' });
+  await assertChain({ request: async () => '0x1237' });
 });

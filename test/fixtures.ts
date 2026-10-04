@@ -23,7 +23,7 @@ export const config: ZkPayConfig = { rpcUrl: 'https://caller.example/rpc', chain
 export function testState(): PoolState {
   const root = new MerkleTree().root.toString();
   return {
-    apiVersion: 'zkpay-robinhood-v1', chainId: CHAIN_ID, network: 'Robinhood Chain Testnet', pool: POOL, verifier: VERIFIER, relayer: RELAYER,
+    apiVersion: 'zkpay-robinhood-mainnet-v1', chainId: CHAIN_ID, network: 'Robinhood Chain Mainnet', pool: POOL, verifier: VERIFIER, relayer: RELAYER,
     deploymentBlock: 10, artifactId: 'test-artifacts', root, nextIndex: 0, feeBps: 20, baseFeeWei: '550000000000000', depositLimitWei: (10n ** 20n).toString(),
     shutdownAt: null, closed: false, initialized: true, poolAuthority: wallet.address, upgradeAuthority: wallet.address, bootstrapAuthority: wallet.address,
     poolEpoch: 1, poolDomain: poolDomain(POOL).toString(), indexing: false,

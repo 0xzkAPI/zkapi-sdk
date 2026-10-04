@@ -17,6 +17,13 @@ export class MerkleTree {
   }
   get size(): number { return this.count; }
   get root(): bigint { return this.levels[TREE_DEPTH].get(0) ?? this.zeros[TREE_DEPTH]; }
+  /** Stage a suffix without rehashing historical leaves or mutating the verified tree. */
+  clone(): MerkleTree {
+    const tree = new MerkleTree();
+    tree.count = this.count;
+    this.levels.forEach((level, index) => { tree.levels[index] = new Map(level); });
+    return tree;
+  }
   append(value: bigint, expectedIndex = this.count): void {
     validateScalar(value);
     requireCondition(expectedIndex === this.count && this.count < 2 ** TREE_DEPTH, 'INVALID_EVENTS', 'Commitment indexes are not contiguous or the tree is full.');
