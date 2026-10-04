@@ -1,6 +1,8 @@
 # Security model
 
-This SDK is an experimental Robinhood Chain Testnet release for native test ETH. It is not an independently audited Mainnet product. The proof artifacts come from the original development ceremony, not a publicly verified multiparty production setup.
+Version 0.2 exposes separate Robinhood Chain Testnet (`46630`, root import) and Mainnet (`4663`, `/mainnet` import) SDKs for native ETH. Mainnet operations can move real funds. Neither SDK nor its deployment is claimed to be independently audited. Matching the pinned proof artifacts does not establish a publicly verified multiparty setup.
+
+The parent application has exercised real Mainnet Deposit, recovery, Send, and Max. The standalone repository's current checks are offline; they do not constitute a fresh live payment acceptance test. This source distribution includes SDK code and examples, not frontend, Worker, contract, or operator deployment source. It does not support USDG or other tokens.
 
 ## Recovery signatures
 
@@ -8,7 +10,7 @@ This SDK is an experimental Robinhood Chain Testnet release for native test ETH.
 
 The recovery signature can recreate spending and note-decryption keys. It must be treated as secret recovery material, even though it is not a transaction signature. Do not send it to a server, log it, capture it in telemetry, or put it in local/session storage. The same restrictions apply to plaintext notes, keys, and proof witnesses.
 
-The signed message includes a protocol/version, origin, chain, pool, and wallet account. The official app retains `https://app.zkpay.sh` and its exact legacy signing text. Changing any derivation input changes the private identity. The configurable origin is a key-separation input, not browser attestation; malicious software can request the same message. Inspect and trust the application requesting recovery signatures.
+The signed message includes a protocol/version, origin, chain, pool, and wallet account. Both official profiles retain `https://app.zkpay.sh` and their exact legacy signing text. Testnet uses `zkpay-robinhood-testnet-v1`; Mainnet uses `zkpay-robinhood-mainnet-v1`. These are separate identities and balances. Changing any derivation input changes the private identity. The configurable origin is a key-separation input, not browser attestation; malicious software can request the same message. Inspect and trust the application requesting recovery signatures.
 
 JavaScript memory is not a secure enclave. The SDK clears references on disconnect or wallet changes, but cannot guarantee erasure against a compromised browser, extension, operating system, or garbage collector. Poseidon uses JavaScript BigInt and is not claimed to run in constant time.
 
@@ -22,18 +24,30 @@ Deposits, originating wallet addresses, withdrawal recipients, amounts crossing 
 
 - **Application and wallet:** application code sees signatures and secret state in memory. A compromised frontend can steal them. Wallet RPC responses are also trusted inputs, checked where possible against pinned deployment identity.
 - **Indexer:** ordered public commitments are checked against the reported checkpoint root. The SDK does not independently authenticate every indexed log against a separate consensus source. A malicious backend can provide a false view or omit encrypted note data. Local root checks and authenticated decryption do not prove indexer completeness or availability.
-- **Read providers:** receipt checks verify block identity, confirmations, contract, calldata, ETH value, and request fingerprint against the selected provider. A malicious provider can misrepresent chain state. These are consistency checks, not a light client.
+- **Read providers:** connected chain reads use the selected wallet provider. Receipt recovery without an active wallet session uses the caller's HTTP `rpcUrl`. Receipt checks verify block identity, confirmations, contract, calldata, ETH value, and request fingerprint against that provider. A malicious provider can misrepresent chain state. These are consistency checks, not a light client; configuring another URL does not make the SDK a provider-quorum verifier.
 - **Relay:** the relay receives proof and public external data, pays transaction gas, and can delay or censor withdrawals. Binding the recipient and fee in the proof prevents undetected redirection under the protocol assumptions. Service availability is not guaranteed.
 - **Contracts and administrators:** the deployed pool is upgradeable and has administrative controls, including fee and pool lifecycle controls. Addresses are pinned, but the SDK does not make administrators powerless or attest immutable implementation bytecode. Review the current deployment before use.
 - **Circuit and setup:** proof soundness depends on the circuit, implementation, verifier, cryptographic assumptions, and trusted setup. Matching artifact hashes verifies file identity, not independent correctness or a trustworthy ceremony.
+
+## Caller-selected RPC and services
+
+Both configuration helpers and direct `ZkApiConfig` objects require `rpcUrl`. There is no bundled RPC, discovery from API responses, automatic provider failover, or fallback to `${apiUrl}/rpc`. The indexer/relay selected by `apiUrl` remains a separate dependency. Mainnet's helper has API and artifact-host defaults; those are not RPC defaults or promises of access/availability.
+
+When a wallet needs a network added, `wallet_addEthereumChain` receives the caller-supplied URL. An already configured wallet may continue using its own network transport. Select trustworthy providers for both contexts; the caller URL does not control every connected wallet request.
+
+RPC URLs permit HTTPS or explicit HTTP loopback development, reject embedded usernames/passwords and fragments, and may include provider tokens in paths or query strings. Do not log the URL, whole client configuration, request objects, or provider errors that may contain credentials. Browser configuration and network-registration requests expose the URL to the browser and wallet, so do not put a server-only credential there. Third-party browser access requires suitable CORS or a controlled proxy for each of API, HTTP RPC, and artifacts. A proxy must never receive recovery signatures, private notes, or proof witnesses.
+
+Use the configuration and artifact pins for the chosen network. Mainnet and Testnet files have identical filenames but different proving/verification keys. Alternate hosting must preserve the expected bytes. Do not disable hash verification to accommodate an incorrect asset deployment.
 
 ## Pending transactions
 
 Keep the public transaction hash and request ID as soon as `onProgress` exposes them. Do not save keys, notes, witnesses, or signatures. Public pending metadata can still reveal an association between a browser and a transaction, so retain only what is needed.
 
-Timeouts, 429/5xx responses, reorgs, and transport failures do not establish that a payment failed. Only verified `confirmed` results are success. `isDefiniteTransactionFailure(error)` recognizes validated terminal failures; generic exceptions are not permission to create a replacement payment.
+Timeouts, 429/5xx responses, reorgs, and transport failures do not establish that a payment failed. Only verified `confirmed` results are success. Import `isDefiniteTransactionFailure(error)`, error classes, and types from the same network entry point as the client: `/mainnet` has separate constructors from the root Testnet SDK. The predicate recognizes validated terminal failures; generic exceptions are not permission to create a replacement payment.
 
 On reload, recover by the original `requestId` and transaction hash. `retryRelay` can resend an exact proof only while that proof is still in this client's memory. If the relay never stored the request and the page was reloaded, the ID alone cannot reconstruct the proof. Keep an unknown result unresolved until it is reconciled.
+
+A confirmed receipt and a current spendable balance are different results. If public indexing has not reached the receipt block, keep the confirmed public reconciliation record and disable spending until synchronization catches up. Preserve that record across reloads; SDK in-memory checkpoint guards do not supply durable application storage.
 
 ## Reporting
 

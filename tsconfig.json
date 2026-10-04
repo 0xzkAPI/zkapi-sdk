@@ -3,14 +3,31 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "baseUrl": ".",
-    "paths": { "@zkapi/robinhood-sdk": ["./src/index.ts"] }
+    "paths": {
+      "@zkapi/robinhood-sdk": [
+        "./src/index.ts"
+      ],
+      "@zkapi/robinhood-sdk/mainnet": [
+        "./src/mainnet/index.ts"
+      ]
+    }
   },
-  "include": ["src", "test", "examples"]
+  "include": [
+    "src",
+    "test",
+    "examples"
+  ]
 }

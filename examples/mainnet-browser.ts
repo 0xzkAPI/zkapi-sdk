@@ -1,28 +1,28 @@
 import {
-  createRobinhoodTestnetConfig,
+  createRobinhoodMainnetConfig,
   createZkApiClient,
   formatEtherExact,
   isDefiniteTransactionFailure,
   parseEtherExact,
-} from '@zkapi/robinhood-sdk';
+} from '@zkapi/robinhood-sdk/mainnet';
 import type {
   Eip1193Provider,
   Progress,
   SendQuote,
   TransactionResult,
   ZkApiClient,
-} from '@zkapi/robinhood-sdk';
+} from '@zkapi/robinhood-sdk/mainnet';
 
-/** Supply your compatible backend and the directory with the pinned artifacts. */
+/** Supply your own Mainnet RPC and stable recovery origin. API/artifact hosts may be overridden. */
 export function createBrowserClient(options: {
   origin: string;
   rpcUrl: string;
-  apiUrl: string;
-  artifactBaseUrl: string;
+  apiUrl?: string;
+  artifactBaseUrl?: string;
   onProgress: (progress: Progress) => void;
   onSessionInvalidated: () => void;
 }): ZkApiClient {
-  return createZkApiClient(createRobinhoodTestnetConfig(options));
+  return createZkApiClient(createRobinhoodMainnetConfig(options));
 }
 
 /** Call after the user picks a wallet and chooses to unlock. Does not submit. */
@@ -46,7 +46,7 @@ export async function submitReviewedSend(client: ZkApiClient, recipient: string,
   return client.send({ recipient, grossWei: quote.grossWei, expectedFeeBps: quote.feeBps });
 }
 
-/** Submits a wallet transaction and pays testnet gas; call only after user review. */
+/** Submits a wallet transaction and pays real mainnet gas; call only after user review. */
 export async function submitDeposit(client: ZkApiClient, amountEth: string): Promise<TransactionResult> {
   return client.deposit(parseEtherExact(amountEth));
 }

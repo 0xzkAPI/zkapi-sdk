@@ -1,39 +1,69 @@
 {
   "name": "@zkapi/robinhood-sdk",
-  "version": "0.1.0",
-  "description": "TypeScript SDK for private ETH payments on Robinhood Chain Testnet",
+  "version": "0.2.0",
+  "description": "TypeScript SDK for private ETH payments on Robinhood Chain Mainnet and Testnet",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
-  "engines": { "node": ">=22.0.0" },
-  "repository": { "type": "git", "url": "git+https://github.com/0xzkAPI/zkapi-sdk.git" },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xzkAPI/zkapi-sdk.git"
+  },
   "homepage": "https://github.com/0xzkAPI/zkapi-sdk#readme",
-  "bugs": { "url": "https://github.com/0xzkAPI/zkapi-sdk/issues" },
+  "bugs": {
+    "url": "https://github.com/0xzkAPI/zkapi-sdk/issues"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./package.json": "./package.json"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json",
+    "./mainnet": {
+      "types": "./dist/mainnet/index.d.ts",
+      "import": "./dist/mainnet/index.js"
+    }
   },
-  "files": ["dist", "src", "LICENSE", "THIRD_PARTY.md", "notices", "README.md", "SECURITY.md", "CHANGELOG.md", "docs", "examples", "tsconfig.json", "tsconfig.build.json"],
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "THIRD_PARTY.md",
+    "notices",
+    "README.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "docs",
+    "examples",
+    "tsconfig.json",
+    "tsconfig.build.json"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts test/mainnet/*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "test:package": "npm run build && node scripts/check-package.mjs",
     "example:quote": "tsx examples/quote.ts",
     "artifacts": "npm run build && node scripts/download-artifacts.mjs",
     "notices": "node scripts/collect-notices.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "artifacts:mainnet": "npm run artifacts -- --network=mainnet"
   },
   "dependencies": {
     "ethers": "6.17.0",
     "poseidon-lite": "0.3.0",
     "snarkjs": "0.7.6"
   },
-  "overrides": { "underscore": "1.13.8" },
+  "overrides": {
+    "underscore": "1.13.8"
+  },
   "devDependencies": {
     "@types/node": "26.6.3",
     "@types/snarkjs": "0.7.9",

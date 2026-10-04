@@ -9,6 +9,7 @@ import { config, keyDomain } from './fixtures.js';
 
 const options = {
   origin: 'https://merchant.example',
+  rpcUrl: 'https://caller.example/rpc',
   apiUrl: 'https://merchant.example/api/robinhood/',
   artifactBaseUrl: 'https://merchant.example/zkapi-artifacts',
 };

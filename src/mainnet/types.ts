@@ -23,6 +23,7 @@ export interface ZkPayConfig {
   origin?: string;
   fetch?: typeof globalThis.fetch;
   confirmationTimeoutMs?: number;
+  /** Initial confirmation delay; exponential backoff caps at 10s (or this value if slower). */
   confirmationPollMs?: number;
   /** Required confirmations including the receipt block; defaults to 2. */
   confirmations?: number;
@@ -32,7 +33,7 @@ export interface ZkPayConfig {
 export type ProgressPhase = 'connecting' | 'signing' | 'syncing' | 'encrypting' | 'loading-artifacts' | 'proving' | 'awaiting-wallet' | 'relaying' | 'confirming' | 'confirmed';
 export interface Progress { phase: ProgressPhase; transactionHash?: string; requestId?: string }
 export interface PoolState {
-  apiVersion: 'zkpay-robinhood-v1';
+  apiVersion: 'zkpay-robinhood-mainnet-v1';
   chainId: typeof CHAIN_ID;
   pool: string;
   verifier: string;
@@ -50,7 +51,7 @@ export interface PoolState {
   upgradeAuthority: string;
   artifactId: string;
   checkpoint: EventCheckpoint;
-  network: 'Robinhood Chain Testnet';
+  network: 'Robinhood Chain Mainnet';
   bootstrapAuthority: string;
   poolEpoch: number;
   poolDomain: string;
@@ -69,7 +70,7 @@ export interface EventMetadata { blockNumber: number; blockHash: string; transac
 export interface CommitmentRecord extends EventMetadata { index: number; commitment: string; encryptedOutput: string }
 export interface NullifierRecord extends EventMetadata { index: number; nullifier: string }
 export interface EventPage {
-  apiVersion: 'zkpay-robinhood-v1'; chainId: typeof CHAIN_ID; pool: string;
+  apiVersion: 'zkpay-robinhood-mainnet-v1'; chainId: typeof CHAIN_ID; pool: string;
   checkpoint: EventCheckpoint;
   commitments: CommitmentRecord[];
   nullifiers: NullifierRecord[];
@@ -116,6 +117,8 @@ export interface TransactionResult {
   kind?: 'deposit' | 'send';
   /** Verified send recipient, or an empty string for a confirmed deposit. */
   recipient?: string;
+  /** Same-session balance refresh reached the receipt block; avoids a duplicate UI sync. */
+  balanceRefreshed?: boolean;
   quote?: SendQuote;
 }
 export interface SendRequest {
